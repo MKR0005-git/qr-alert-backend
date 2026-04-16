@@ -12,7 +12,8 @@ require("dotenv").config();
 const app = express();
 
 /* ================= CONFIG ================= */
-const FRONTEND_URL = "http://192.168.1.2:5173";
+const FRONTEND_URL = "https://qr-alert-frontend.vercel.app"; // 🔥 change if different
+const BACKEND_URL = "https://qr-alert-backend.onrender.com";
 
 /* ================= MIDDLEWARE ================= */
 app.use(express.json());
@@ -50,7 +51,7 @@ app.post("/google-login", async (req, res) => {
 
     const token = jwt.sign(
       { userId: user._id },
-      "secretkey",
+      process.env.JWT_SECRET,
       { expiresIn: "7d" }
     );
 
@@ -65,7 +66,7 @@ app.post("/google-login", async (req, res) => {
 app.post("/create-qr", async (req, res) => {
   try {
     const token = req.headers.authorization;
-    const decoded = jwt.verify(token, "secretkey");
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
 
     const qr = await QR.create({
       ...req.body,
@@ -111,7 +112,7 @@ app.post("/bulk-create", async (req, res) => {
 app.post("/activate-qr/:id", async (req, res) => {
   try {
     const token = req.headers.authorization;
-    const decoded = jwt.verify(token, "secretkey");
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
 
     const qr = await QR.findById(req.params.id);
 
@@ -138,28 +139,22 @@ app.post("/activate-qr/:id", async (req, res) => {
   }
 });
 
-/* ================= 🔥 DOWNLOAD SINGLE QR (SIZE) ================= */
+/* ================= DOWNLOAD SINGLE QR ================= */
 app.get("/download-qr/:id/:size", async (req, res) => {
   try {
     const { id, size } = req.params;
 
-    const sizes = {
-      "6": 226,
-      "8": 302,
-      "12": 454,
-    };
-
+    const sizes = { "6": 226, "8": 302, "12": 454 };
     const pixelSize = sizes[size] || 300;
 
-    const url = `http://192.168.1.2:5000/scan/${id}`;
+    const url = `${BACKEND_URL}/scan/${id}`;
 
     const qr = await QRCode.toDataURL(url, {
       width: pixelSize,
       margin: 2,
     });
 
-    const img = qr.replace(/^data:image\/png;base64,/, "");
-    const buffer = Buffer.from(img, "base64");
+    const buffer = Buffer.from(qr.split(",")[1], "base64");
 
     res.set("Content-Type", "image/png");
     res.send(buffer);
@@ -169,17 +164,12 @@ app.get("/download-qr/:id/:size", async (req, res) => {
   }
 });
 
-/* ================= 🔥 DOWNLOAD ALL QRs (PDF) ================= */
+/* ================= DOWNLOAD ALL QRs (PDF) ================= */
 app.get("/download-all-qrs/:size", async (req, res) => {
   try {
     const { size } = req.params;
 
-    const sizes = {
-      "6": 120,
-      "8": 160,
-      "12": 220,
-    };
-
+    const sizes = { "6": 120, "8": 160, "12": 220 };
     const qrSize = sizes[size] || 120;
 
     const qrs = await QR.find();
@@ -195,13 +185,10 @@ app.get("/download-all-qrs/:size", async (req, res) => {
     let y = 20;
 
     for (let qr of qrs) {
-      const url = `http://192.168.1.2:5000/scan/${qr._id}`;
+      const url = `${BACKEND_URL}/scan/${qr._id}`;
       const qrImage = await QRCode.toDataURL(url);
 
-      const buffer = Buffer.from(
-        qrImage.replace(/^data:image\/png;base64,/, ""),
-        "base64"
-      );
+      const buffer = Buffer.from(qrImage.split(",")[1], "base64");
 
       doc.image(buffer, x, y, { width: qrSize });
 
@@ -258,12 +245,11 @@ app.get("/qr-data/:id", async (req, res) => {
 /* ================= QR IMAGE ================= */
 app.get("/generate-qr/:id", async (req, res) => {
   try {
-    const url = `http://192.168.1.2:5000/scan/${req.params.id}`;
+    const url = `${BACKEND_URL}/scan/${req.params.id}`;
 
     const qr = await QRCode.toDataURL(url);
 
-    const img = qr.replace(/^data:image\/png;base64,/, "");
-    const buffer = Buffer.from(img, "base64");
+    const buffer = Buffer.from(qr.split(",")[1], "base64");
 
     res.set("Content-Type", "image/png");
     res.send(buffer);
@@ -276,7 +262,7 @@ app.get("/generate-qr/:id", async (req, res) => {
 /* ================= USER QRS ================= */
 app.get("/my-qrs", async (req, res) => {
   const token = req.headers.authorization;
-  const decoded = jwt.verify(token, "secretkey");
+  const decoded = jwt.verify(token, process.env.JWT_SECRET);
 
   const data = await QR.find({ userId: decoded.userId })
     .sort({ createdAt: -1 });
@@ -293,7 +279,7 @@ app.get("/all-qrs", async (req, res) => {
 /* ================= ADMIN STATS ================= */
 app.get("/admin-analytics", async (req, res) => {
   const token = req.headers.authorization;
-  const decoded = jwt.verify(token, "secretkey");
+  const decoded = jwt.verify(token, process.env.JWT_SECRET);
 
   const user = await User.findById(decoded.userId);
 
@@ -311,6 +297,8 @@ app.get("/admin-analytics", async (req, res) => {
 });
 
 /* ================= SERVER ================= */
-app.listen(5000, () => {
-  console.log("Server running on port 5000 🚀");
+const PORT = process.env.PORT || 5000;
+
+app.listen(PORT, () => {
+  console.log(`Server running on port ${PORT} 🚀`);
 });
