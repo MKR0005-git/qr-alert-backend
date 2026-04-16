@@ -12,7 +12,7 @@ require("dotenv").config();
 const app = express();
 
 /* ================= CONFIG ================= */
-const FRONTEND_URL = "https://qr-alert-frontend.vercel.app"; // 🔥 change if different
+const FRONTEND_URL = "https://qr-alert-frontend.vercel.app";
 const BACKEND_URL = "https://qr-alert-backend.onrender.com";
 
 /* ================= MIDDLEWARE ================= */
@@ -50,7 +50,10 @@ app.post("/google-login", async (req, res) => {
     }
 
     const token = jwt.sign(
-      { userId: user._id },
+      {
+        userId: user._id,
+        email: user.email, // 🔥 IMPORTANT ADD
+      },
       process.env.JWT_SECRET,
       { expiresIn: "7d" }
     );
@@ -71,7 +74,8 @@ app.post("/create-qr", async (req, res) => {
     const qr = await QR.create({
       ...req.body,
       userId: decoded.userId,
-      isActivated: false,
+      userEmail: decoded.email, // 🔥 ADD THIS
+      isActivated: true, // 🔥 direct create = activated
     });
 
     res.json({ id: qr._id });
@@ -127,6 +131,7 @@ app.post("/activate-qr/:id", async (req, res) => {
       {
         ...req.body,
         userId: decoded.userId,
+        userEmail: decoded.email, // 🔥 FIX
         isActivated: true,
       },
       { new: true }
@@ -139,7 +144,24 @@ app.post("/activate-qr/:id", async (req, res) => {
   }
 });
 
-/* ================= DOWNLOAD SINGLE QR ================= */
+/* ================= USER QRS ================= */
+app.get("/my-qrs", async (req, res) => {
+  try {
+    const token = req.headers.authorization;
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+
+    const data = await QR.find({
+      userId: decoded.userId, // 🔥 FILTER CORRECTLY
+    }).sort({ createdAt: -1 });
+
+    res.json(data);
+
+  } catch {
+    res.status(401).json({ error: "Unauthorized" });
+  }
+});
+
+/* ================= DOWNLOAD ================= */
 app.get("/download-qr/:id/:size", async (req, res) => {
   try {
     const { id, size } = req.params;
@@ -164,55 +186,6 @@ app.get("/download-qr/:id/:size", async (req, res) => {
   }
 });
 
-/* ================= DOWNLOAD ALL QRs (PDF) ================= */
-app.get("/download-all-qrs/:size", async (req, res) => {
-  try {
-    const { size } = req.params;
-
-    const sizes = { "6": 120, "8": 160, "12": 220 };
-    const qrSize = sizes[size] || 120;
-
-    const qrs = await QR.find();
-
-    const doc = new PDFDocument({ margin: 20 });
-
-    res.setHeader("Content-Type", "application/pdf");
-    res.setHeader("Content-Disposition", `attachment; filename=qrs-${size}.pdf`);
-
-    doc.pipe(res);
-
-    let x = 20;
-    let y = 20;
-
-    for (let qr of qrs) {
-      const url = `${BACKEND_URL}/scan/${qr._id}`;
-      const qrImage = await QRCode.toDataURL(url);
-
-      const buffer = Buffer.from(qrImage.split(",")[1], "base64");
-
-      doc.image(buffer, x, y, { width: qrSize });
-
-      x += qrSize + 20;
-
-      if (x > 500) {
-        x = 20;
-        y += qrSize + 40;
-      }
-
-      if (y > 700) {
-        doc.addPage();
-        x = 20;
-        y = 20;
-      }
-    }
-
-    doc.end();
-
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
 /* ================= SCAN ================= */
 app.get("/scan/:id", async (req, res) => {
   try {
@@ -229,6 +202,11 @@ app.get("/scan/:id", async (req, res) => {
 
     await data.save();
 
+    // 🔥 IMPORTANT FIX (activation flow)
+    if (!data.isActivated) {
+      return res.redirect(`${FRONTEND_URL}/activate/${req.params.id}`);
+    }
+
     res.redirect(`${FRONTEND_URL}/profile/${req.params.id}`);
 
   } catch {
@@ -236,19 +214,16 @@ app.get("/scan/:id", async (req, res) => {
   }
 });
 
-/* ================= QR DATA ================= */
+/* ================= OTHER ROUTES ================= */
 app.get("/qr-data/:id", async (req, res) => {
   const data = await QR.findById(req.params.id);
   res.json(data);
 });
 
-/* ================= QR IMAGE ================= */
 app.get("/generate-qr/:id", async (req, res) => {
   try {
     const url = `${BACKEND_URL}/scan/${req.params.id}`;
-
     const qr = await QRCode.toDataURL(url);
-
     const buffer = Buffer.from(qr.split(",")[1], "base64");
 
     res.set("Content-Type", "image/png");
@@ -259,41 +234,9 @@ app.get("/generate-qr/:id", async (req, res) => {
   }
 });
 
-/* ================= USER QRS ================= */
-app.get("/my-qrs", async (req, res) => {
-  const token = req.headers.authorization;
-  const decoded = jwt.verify(token, process.env.JWT_SECRET);
-
-  const data = await QR.find({ userId: decoded.userId })
-    .sort({ createdAt: -1 });
-
-  res.json(data);
-});
-
-/* ================= ALL QRS ================= */
 app.get("/all-qrs", async (req, res) => {
   const qrs = await QR.find().sort({ createdAt: -1 });
   res.json(qrs);
-});
-
-/* ================= ADMIN STATS ================= */
-app.get("/admin-analytics", async (req, res) => {
-  const token = req.headers.authorization;
-  const decoded = jwt.verify(token, process.env.JWT_SECRET);
-
-  const user = await User.findById(decoded.userId);
-
-  if (user.role !== "admin") {
-    return res.status(403).json({ error: "Forbidden" });
-  }
-
-  const qrs = await QR.find();
-
-  res.json({
-    totalQR: qrs.length,
-    totalScans: qrs.reduce((s, q) => s + q.scans, 0),
-    activeQR: qrs.filter(q => q.isActivated).length,
-  });
 });
 
 /* ================= SERVER ================= */

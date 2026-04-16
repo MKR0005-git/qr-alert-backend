@@ -5,13 +5,19 @@ const qrSchema = new mongoose.Schema({
   userId: {
     type: mongoose.Schema.Types.ObjectId,
     ref: "User",
-    default: null, // 🔥 FIXED (was required)
+    default: null,
+  },
+
+  /* 🔥 ADD THIS (IMPORTANT FOR DEBUG + FUTURE) */
+  userEmail: {
+    type: String,
+    default: null,
   },
 
   /* 🧾 BASIC INFO */
   name: {
     type: String,
-    default: "UNASSIGNED", // 🔥 allow blank QR
+    default: "UNASSIGNED",
   },
 
   phone: {
@@ -29,16 +35,17 @@ const qrSchema = new mongoose.Schema({
     default: "NA",
   },
 
-  /* 🔥 EMERGENCY EMAIL (OPTIONAL INITIALLY) */
+  /* 🔥 EMERGENCY EMAIL */
   emergencyEmail: {
     type: String,
-    default: "", // 🔥 FIXED (was required)
+    default: "",
+    match: [/^\S+@\S+\.\S+$/, "Please use a valid email address"], // ✅ fixes your error
   },
 
   /* 🔥 ACTIVATION */
   isActivated: {
     type: Boolean,
-    default: false, // 🔥 VERY IMPORTANT (was true)
+    default: false,
   },
 
   /* 📊 SCANS */
