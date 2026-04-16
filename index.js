@@ -52,7 +52,7 @@ app.post("/google-login", async (req, res) => {
     const token = jwt.sign(
       {
         userId: user._id,
-        email: user.email, // 🔥 IMPORTANT ADD
+        email: user.email,
       },
       process.env.JWT_SECRET,
       { expiresIn: "7d" }
@@ -68,14 +68,14 @@ app.post("/google-login", async (req, res) => {
 /* ================= CREATE QR ================= */
 app.post("/create-qr", async (req, res) => {
   try {
-    const token = req.headers.authorization;
+    const token = req.headers.authorization?.split(" ")[1]; // 🔥 FIX
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
 
     const qr = await QR.create({
       ...req.body,
       userId: decoded.userId,
-      userEmail: decoded.email, // 🔥 ADD THIS
-      isActivated: true, // 🔥 direct create = activated
+      userEmail: decoded.email,
+      isActivated: true,
     });
 
     res.json({ id: qr._id });
@@ -115,7 +115,7 @@ app.post("/bulk-create", async (req, res) => {
 /* ================= ACTIVATE QR ================= */
 app.post("/activate-qr/:id", async (req, res) => {
   try {
-    const token = req.headers.authorization;
+    const token = req.headers.authorization?.split(" ")[1]; // 🔥 FIX
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
 
     const qr = await QR.findById(req.params.id);
@@ -131,7 +131,7 @@ app.post("/activate-qr/:id", async (req, res) => {
       {
         ...req.body,
         userId: decoded.userId,
-        userEmail: decoded.email, // 🔥 FIX
+        userEmail: decoded.email,
         isActivated: true,
       },
       { new: true }
@@ -147,11 +147,11 @@ app.post("/activate-qr/:id", async (req, res) => {
 /* ================= USER QRS ================= */
 app.get("/my-qrs", async (req, res) => {
   try {
-    const token = req.headers.authorization;
+    const token = req.headers.authorization?.split(" ")[1]; // 🔥 FIX
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
 
     const data = await QR.find({
-      userId: decoded.userId, // 🔥 FILTER CORRECTLY
+      userId: decoded.userId,
     }).sort({ createdAt: -1 });
 
     res.json(data);
@@ -202,7 +202,6 @@ app.get("/scan/:id", async (req, res) => {
 
     await data.save();
 
-    // 🔥 IMPORTANT FIX (activation flow)
     if (!data.isActivated) {
       return res.redirect(`${FRONTEND_URL}/activate/${req.params.id}`);
     }
