@@ -6,7 +6,7 @@ const cors = require("cors");
 const jwt = require("jsonwebtoken");
 const User = require("./models/User");
 const archiver = require("archiver");
-const Jimp = require("jimp");
+const Jimp = require("jimp").default;
 const path = require("path");
 
 require("dotenv").config();
