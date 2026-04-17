@@ -16,6 +16,7 @@
     "cors": "^2.8.6",
     "dotenv": "^17.4.2",
     "express": "^5.2.1",
+    "jimp": "^1.6.1",
     "jsonwebtoken": "^9.0.3",
     "mongoose": "^9.4.1",
     "nanoid": "^5.1.7",
