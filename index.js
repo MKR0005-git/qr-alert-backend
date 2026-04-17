@@ -5,7 +5,7 @@ const mongoose = require("mongoose");
 const cors = require("cors");
 const jwt = require("jsonwebtoken");
 const User = require("./models/User");
-const archiver = require("archiver"); // 🔥 NEW
+const archiver = require("archiver");
 
 require("dotenv").config();
 
@@ -121,22 +121,14 @@ app.post("/bulk-create", authMiddleware, async (req, res) => {
   }
 });
 
-/* ================= DOWNLOAD ALL UNASSIGNED (🔥 NEW FEATURE) ================= */
+/* ================= DOWNLOAD ================= */
 app.get("/download-unassigned/:size", authMiddleware, async (req, res) => {
   try {
     const user = await User.findById(req.user.userId);
-
-    if (user.role !== "admin") {
-      return res.status(403).json({ error: "Admin only" });
-    }
+    if (user.role !== "admin") return res.status(403).json({ error: "Admin only" });
 
     const size = parseInt(req.params.size) || 6;
-
     const qrs = await QR.find({ isActivated: false });
-
-    if (!qrs.length) {
-      return res.status(404).json({ error: "No unassigned QRs" });
-    }
 
     res.attachment(`unassigned-qrs-${size}.zip`);
 
@@ -145,175 +137,99 @@ app.get("/download-unassigned/:size", authMiddleware, async (req, res) => {
 
     for (const qr of qrs) {
       const url = `${BACKEND_URL}/scan/${qr._id}`;
+      const qrImage = await QRCode.toBuffer(url, { width: size * 100 });
 
-      const qrImage = await QRCode.toBuffer(url, {
-        width: size * 100,
-      });
-
-      archive.append(qrImage, {
-        name: `QR-${qr._id}.png`,
-      });
+      archive.append(qrImage, { name: `QR-${qr._id}.png` });
     }
 
     await archive.finalize();
 
-  } catch (err) {
-    console.error(err);
+  } catch {
     res.status(500).json({ error: "Download failed" });
   }
 });
 
-/* ================= ACTIVATE QR ================= */
-app.post("/activate-qr/:id", authMiddleware, async (req, res) => {
-  try {
-    const qr = await QR.findById(req.params.id);
+/* ================= ANALYTICS ================= */
 
-    if (!qr) return res.status(404).json({ error: "QR not found" });
+// 🔥 ADMIN STATS
+app.get("/admin-stats", authMiddleware, async (req, res) => {
+  const user = await User.findById(req.user.userId);
+  if (user.role !== "admin") return res.status(403).json({ error: "Admin only" });
 
-    if (qr.isActivated && qr.userId) {
-      return res.status(400).json({ error: "Already assigned QR" });
-    }
+  const qrs = await QR.find();
 
-    const updated = await QR.findByIdAndUpdate(
-      req.params.id,
-      {
-        ...req.body,
-        userId: req.user.userId,
-        userEmail: req.user.email,
-        isActivated: true,
-      },
-      { new: true }
-    );
+  const total = qrs.length;
+  const activated = qrs.filter(q => q.isActivated).length;
+  const unassigned = qrs.filter(q => !q.isActivated).length;
+  const scans = qrs.reduce((sum, q) => sum + (q.scans || 0), 0);
 
-    res.json(updated);
-
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
+  res.json({ total, activated, unassigned, scans });
 });
 
-/* ================= UPDATE QR ================= */
-app.put("/update-qr/:id", authMiddleware, async (req, res) => {
-  try {
-    const qr = await QR.findById(req.params.id);
+// 🔥 TOP QRs
+app.get("/top-qrs", authMiddleware, async (req, res) => {
+  const user = await User.findById(req.user.userId);
+  if (user.role !== "admin") return res.status(403).json({ error: "Admin only" });
 
-    if (!qr) return res.status(404).json({ error: "QR not found" });
+  const top = await QR.find({ isActivated: true })
+    .sort({ scans: -1 })
+    .limit(5);
 
-    if (!qr.userId || qr.userId.toString() !== req.user.userId) {
-      return res.status(403).json({ error: "Unauthorized" });
-    }
-
-    const updated = await QR.findByIdAndUpdate(
-      req.params.id,
-      req.body,
-      { new: true }
-    );
-
-    res.json(updated);
-
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
+  res.json(top);
 });
 
-/* ================= DELETE QR ================= */
+// 🔥 SCAN TREND (last 7 days)
+app.get("/scan-trend", authMiddleware, async (req, res) => {
+  const user = await User.findById(req.user.userId);
+  if (user.role !== "admin") return res.status(403).json({ error: "Admin only" });
+
+  const qrs = await QR.find();
+
+  const trend = {};
+
+  qrs.forEach(qr => {
+    qr.scanHistory.forEach(s => {
+      const date = new Date(s.time).toLocaleDateString();
+
+      trend[date] = (trend[date] || 0) + 1;
+    });
+  });
+
+  res.json(trend);
+});
+
+/* ================= DELETE ================= */
 app.delete("/delete-qr/:id", authMiddleware, async (req, res) => {
-  try {
-    const qr = await QR.findById(req.params.id);
+  const qr = await QR.findById(req.params.id);
 
-    if (!qr) return res.status(404).json({ error: "QR not found" });
+  if (!qr) return res.status(404).json({ error: "QR not found" });
 
-    if (qr.userId && qr.userId.toString() !== req.user.userId) {
-      return res.status(403).json({ error: "Unauthorized" });
-    }
-
-    await QR.findByIdAndDelete(req.params.id);
-
-    res.json({ message: "QR deleted" });
-
-  } catch (err) {
-    res.status(500).json({ error: err.message });
+  if (qr.userId && qr.userId.toString() !== req.user.userId) {
+    return res.status(403).json({ error: "Unauthorized" });
   }
-});
 
-/* ================= USER QRS ================= */
-app.get("/my-qrs", authMiddleware, async (req, res) => {
-  try {
-    const data = await QR.find({
-      userId: req.user.userId,
-    }).sort({ createdAt: -1 });
+  await QR.findByIdAndDelete(req.params.id);
 
-    res.json(data);
-
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-/* ================= ADMIN QRS ================= */
-app.get("/all-qrs", authMiddleware, async (req, res) => {
-  try {
-    const user = await User.findById(req.user.userId);
-
-    if (user.role !== "admin") {
-      return res.status(403).json({ error: "Admin only" });
-    }
-
-    const qrs = await QR.find().sort({ createdAt: -1 });
-
-    res.json(qrs);
-
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
+  res.json({ message: "QR deleted" });
 });
 
 /* ================= SCAN ================= */
 app.get("/scan/:id", async (req, res) => {
-  try {
-    const data = await QR.findById(req.params.id);
-
-    if (!data) return res.status(404).send("Not found");
-
-    data.scans += 1;
-
-    data.scanHistory.push({
-      time: new Date(),
-      device: req.headers["user-agent"] || "Unknown",
-    });
-
-    await data.save();
-
-    if (!data.isActivated) {
-      return res.redirect(`${FRONTEND_URL}/activate/${req.params.id}`);
-    }
-
-    res.redirect(`${FRONTEND_URL}/profile/${req.params.id}`);
-
-  } catch {
-    res.status(500).send("Error");
-  }
-});
-
-/* ================= QR DATA ================= */
-app.get("/qr-data/:id", async (req, res) => {
   const data = await QR.findById(req.params.id);
-  res.json(data);
-});
 
-/* ================= GENERATE QR ================= */
-app.get("/generate-qr/:id", async (req, res) => {
-  try {
-    const url = `${BACKEND_URL}/scan/${req.params.id}`;
-    const qr = await QRCode.toDataURL(url);
-    const buffer = Buffer.from(qr.split(",")[1], "base64");
+  data.scans += 1;
+  data.scanHistory.push({
+    time: new Date(),
+    device: req.headers["user-agent"] || "Unknown",
+  });
 
-    res.set("Content-Type", "image/png");
-    res.send(buffer);
+  await data.save();
 
-  } catch {
-    res.status(500).json({ error: "QR generation failed" });
+  if (!data.isActivated) {
+    return res.redirect(`${FRONTEND_URL}/activate/${req.params.id}`);
   }
+
+  res.redirect(`${FRONTEND_URL}/profile/${req.params.id}`);
 });
 
 /* ================= SERVER ================= */
