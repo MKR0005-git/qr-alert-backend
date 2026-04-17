@@ -6,7 +6,7 @@ const cors = require("cors");
 const jwt = require("jsonwebtoken");
 const User = require("./models/User");
 const archiver = require("archiver");
-const Jimp = require("jimp"); // ✅ FIXED (IMPORTANT)
+const Jimp = require("jimp");
 const path = require("path");
 
 require("dotenv").config();
@@ -40,35 +40,26 @@ const authMiddleware = (req, res, next) => {
   }
 };
 
-/* ================= 🔥 QR WITH LOGO (FINAL FIX) ================= */
+/* ================= QR WITH LOGO ================= */
 const generateQRWithLogo = async (url, size = 600) => {
-  try {
-    const qrBuffer = await QRCode.toBuffer(url, {
-      width: size,
-      margin: 2,
-    });
+  const qrBuffer = await QRCode.toBuffer(url, {
+    width: size,
+    margin: 2,
+  });
 
-    const qr = await Jimp.read(qrBuffer);
+  const qr = await Jimp.read(qrBuffer);
+  const logoPath = path.resolve(__dirname, "logo.png");
+  const logo = await Jimp.read(logoPath);
 
-    const logoPath = path.resolve(__dirname, "logo.png");
-    const logo = await Jimp.read(logoPath);
+  const logoSize = Math.floor(size / 4);
+  logo.resize(logoSize, logoSize);
 
-    const logoSize = Math.floor(size / 4);
+  const x = (qr.bitmap.width - logoSize) / 2;
+  const y = (qr.bitmap.height - logoSize) / 2;
 
-    // ✅ OLD STABLE API (NO ERRORS)
-    logo.resize(logoSize, logoSize);
+  qr.composite(logo, x, y);
 
-    const x = Math.floor((qr.bitmap.width - logoSize) / 2);
-    const y = Math.floor((qr.bitmap.height - logoSize) / 2);
-
-    qr.composite(logo, x, y);
-
-    return await qr.getBufferAsync(Jimp.MIME_PNG);
-
-  } catch (err) {
-    console.error("QR ERROR:", err);
-    throw err;
-  }
+  return await qr.getBufferAsync(Jimp.MIME_PNG);
 };
 
 /* ================= ROOT ================= */
@@ -195,6 +186,33 @@ app.get("/download-unassigned/:size", authMiddleware, async (req, res) => {
 
   } catch (err) {
     res.status(500).json({ error: err.message });
+  }
+});
+
+/* ================= 🔥 SCAN ROUTE (FIXED) ================= */
+app.get("/scan/:id", async (req, res) => {
+  try {
+    const qr = await QR.findById(req.params.id);
+
+    if (!qr) {
+      return res.send("Invalid QR ❌");
+    }
+
+    qr.scans = (qr.scans || 0) + 1;
+
+    qr.scanHistory = qr.scanHistory || [];
+    qr.scanHistory.push({
+      device: req.headers["user-agent"],
+      time: new Date(),
+    });
+
+    await qr.save();
+
+    return res.redirect(`${FRONTEND_URL}/profile/${qr._id}`);
+
+  } catch (err) {
+    console.error(err);
+    res.status(500).send("Scan failed ❌");
   }
 });
 
