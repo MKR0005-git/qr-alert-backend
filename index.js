@@ -6,7 +6,7 @@ const cors = require("cors");
 const jwt = require("jsonwebtoken");
 const User = require("./models/User");
 const archiver = require("archiver");
-const Jimp = require("jimp").default;
+const { Jimp } = require("jimp"); // ✅ FIXED
 const path = require("path");
 
 require("dotenv").config();
@@ -40,7 +40,7 @@ const authMiddleware = (req, res, next) => {
   }
 };
 
-/* ================= 🔥 QR WITH LOGO (FIXED) ================= */
+/* ================= 🔥 QR WITH LOGO (FINAL FIX) ================= */
 const generateQRWithLogo = async (url, size = 600) => {
   try {
     const qrBuffer = await QRCode.toBuffer(url, {
@@ -51,22 +51,28 @@ const generateQRWithLogo = async (url, size = 600) => {
     const qr = await Jimp.read(qrBuffer);
 
     const logoPath = path.resolve(__dirname, "logo.png");
-    console.log("Loading logo from:", logoPath);
+    console.log("Loading logo:", logoPath);
 
     const logo = await Jimp.read(logoPath);
 
-    const logoSize = size / 4;
-    logo.resize(logoSize, logoSize);
+    const logoSize = Math.floor(size / 4);
 
-    const x = (qr.bitmap.width - logoSize) / 2;
-    const y = (qr.bitmap.height - logoSize) / 2;
+    // ✅ NEW JIMP RESIZE FORMAT
+    logo.resize({
+      width: logoSize,
+      height: logoSize,
+    });
+
+    const x = Math.floor((qr.bitmap.width - logoSize) / 2);
+    const y = Math.floor((qr.bitmap.height - logoSize) / 2);
 
     qr.composite(logo, x, y);
 
-    return await qr.getBufferAsync(Jimp.MIME_PNG);
+    // ✅ FIXED BUFFER
+    return await qr.getBuffer("image/png");
 
   } catch (err) {
-    console.error("QR ERROR FULL:", err);
+    console.error("QR ERROR:", err);
     throw err;
   }
 };
