@@ -6,7 +6,7 @@ const cors = require("cors");
 const jwt = require("jsonwebtoken");
 const User = require("./models/User");
 const archiver = require("archiver");
-const Jimp = require("jimp");
+const Jimp = require("jimp").default; // ✅ FIXED
 const path = require("path");
 
 require("dotenv").config();
@@ -42,24 +42,31 @@ const authMiddleware = (req, res, next) => {
 
 /* ================= QR WITH LOGO ================= */
 const generateQRWithLogo = async (url, size = 600) => {
-  const qrBuffer = await QRCode.toBuffer(url, {
-    width: size,
-    margin: 2,
-  });
+  try {
+    const qrBuffer = await QRCode.toBuffer(url, {
+      width: size,
+      margin: 2,
+    });
 
-  const qr = await Jimp.read(qrBuffer);
-  const logoPath = path.resolve(__dirname, "logo.png");
-  const logo = await Jimp.read(logoPath);
+    const qr = await Jimp.read(qrBuffer);
 
-  const logoSize = Math.floor(size / 4);
-  logo.resize(logoSize, logoSize);
+    const logoPath = path.resolve(__dirname, "logo.png");
+    const logo = await Jimp.read(logoPath);
 
-  const x = (qr.bitmap.width - logoSize) / 2;
-  const y = (qr.bitmap.height - logoSize) / 2;
+    const logoSize = Math.floor(size / 4);
+    logo.resize(logoSize, logoSize);
 
-  qr.composite(logo, x, y);
+    const x = (qr.bitmap.width - logoSize) / 2;
+    const y = (qr.bitmap.height - logoSize) / 2;
 
-  return await qr.getBufferAsync(Jimp.MIME_PNG);
+    qr.composite(logo, x, y);
+
+    return await qr.getBufferAsync(Jimp.MIME_PNG);
+
+  } catch (err) {
+    console.error("QR generation error:", err);
+    throw err;
+  }
 };
 
 /* ================= ROOT ================= */
@@ -112,6 +119,16 @@ app.post("/create-qr", authMiddleware, async (req, res) => {
   }
 });
 
+/* ================= MY QRS ================= */
+app.get("/my-qrs", authMiddleware, async (req, res) => {
+  try {
+    const qrs = await QR.find({ userId: req.user.userId }).sort({ createdAt: -1 });
+    res.json(qrs);
+  } catch (err) {
+    res.status(500).json({ error: "Failed to fetch" });
+  }
+});
+
 /* ================= ALL QRS ================= */
 app.get("/all-qrs", authMiddleware, async (req, res) => {
   try {
@@ -122,7 +139,6 @@ app.get("/all-qrs", authMiddleware, async (req, res) => {
     }
 
     const qrs = await QR.find().sort({ createdAt: -1 });
-
     res.json(qrs);
 
   } catch (err) {
@@ -140,7 +156,8 @@ app.get("/generate-qr/:id", async (req, res) => {
     res.send(qrImage);
 
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error(err);
+    res.status(500).json({ error: "QR generation failed" });
   }
 });
 
@@ -200,12 +217,13 @@ app.get("/scan/:id", async (req, res) => {
 
     qr.scanHistory = qr.scanHistory || [];
     qr.scanHistory.push({
-      device: req.headers["user-agent"],
+      device: req.headers["user-agent"] || "Unknown",
       time: new Date(),
     });
 
     await qr.save();
 
+    // ✅ IMPORTANT FIX
     return res.redirect(`${FRONTEND_URL}/profile/${qr._id}`);
 
   } catch (err) {
@@ -214,7 +232,7 @@ app.get("/scan/:id", async (req, res) => {
   }
 });
 
-/* ================= 🔥 FIX: QR DATA ================= */
+/* ================= QR DATA ================= */
 app.get("/qr-data/:id", async (req, res) => {
   try {
     const qr = await QR.findById(req.params.id);
@@ -226,7 +244,6 @@ app.get("/qr-data/:id", async (req, res) => {
     res.json(qr);
 
   } catch (err) {
-    console.error(err);
     res.status(500).json({ error: "Failed to fetch QR data" });
   }
 });
