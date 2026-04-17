@@ -6,6 +6,8 @@ const cors = require("cors");
 const jwt = require("jsonwebtoken");
 const User = require("./models/User");
 const archiver = require("archiver");
+const Jimp = require("jimp");
+const path = require("path");
 
 require("dotenv").config();
 
@@ -36,6 +38,27 @@ const authMiddleware = (req, res, next) => {
   } catch {
     res.status(401).json({ error: "Unauthorized" });
   }
+};
+
+/* ================= 🔥 QR WITH LOGO ================= */
+const generateQRWithLogo = async (url, size = 600) => {
+  const qrBuffer = await QRCode.toBuffer(url, {
+    width: size,
+    margin: 2,
+  });
+
+  const qr = await Jimp.read(qrBuffer);
+  const logo = await Jimp.read(path.join(__dirname, "logo.png"));
+
+  const logoSize = size / 4;
+  logo.resize(logoSize, logoSize);
+
+  const x = (qr.bitmap.width - logoSize) / 2;
+  const y = (qr.bitmap.height - logoSize) / 2;
+
+  qr.composite(logo, x, y);
+
+  return await qr.getBufferAsync(Jimp.MIME_PNG);
 };
 
 /* ================= ROOT ================= */
@@ -88,7 +111,7 @@ app.post("/create-qr", authMiddleware, async (req, res) => {
   }
 });
 
-/* ================= 🔥 ALL QRS (FIXED) ================= */
+/* ================= ALL QRS ================= */
 app.get("/all-qrs", authMiddleware, async (req, res) => {
   try {
     const user = await User.findById(req.user.userId);
@@ -106,7 +129,7 @@ app.get("/all-qrs", authMiddleware, async (req, res) => {
   }
 });
 
-/* ================= 🔥 QR DATA ================= */
+/* ================= QR DATA ================= */
 app.get("/qr-data/:id", async (req, res) => {
   try {
     const qr = await QR.findById(req.params.id);
@@ -120,48 +143,12 @@ app.get("/qr-data/:id", async (req, res) => {
   }
 });
 
-/* ================= BULK CREATE ================= */
-app.post("/bulk-create", authMiddleware, async (req, res) => {
-  try {
-    const user = await User.findById(req.user.userId);
-
-    if (user.role !== "admin") {
-      return res.status(403).json({ error: "Admin only" });
-    }
-
-    const { count } = req.body;
-
-    const qrs = [];
-
-    for (let i = 0; i < count; i++) {
-      const qr = await QR.create({
-        name: "UNASSIGNED",
-        phone: "NA",
-        bloodGroup: "NA",
-        emergencyContact: "NA",
-        emergencyEmail: "",
-        isActivated: false,
-      });
-
-      qrs.push(qr);
-    }
-
-    res.json(qrs);
-
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-/* ================= GENERATE QR ================= */
+/* ================= GENERATE QR (WITH LOGO) ================= */
 app.get("/generate-qr/:id", async (req, res) => {
   try {
     const url = `${BACKEND_URL}/scan/${req.params.id}`;
 
-    const qrImage = await QRCode.toBuffer(url, {
-      width: 600,
-      margin: 2,
-    });
+    const qrImage = await generateQRWithLogo(url, 600);
 
     res.setHeader("Content-Type", "image/png");
     res.send(qrImage);
@@ -177,9 +164,7 @@ app.get("/download-qr/:id/:size", async (req, res) => {
     const size = parseInt(req.params.size) || 6;
     const url = `${BACKEND_URL}/scan/${req.params.id}`;
 
-    const qrImage = await QRCode.toBuffer(url, {
-      width: size * 100,
-    });
+    const qrImage = await generateQRWithLogo(url, size * 100);
 
     res.setHeader("Content-Disposition", `attachment; filename=QR-${req.params.id}.png`);
     res.setHeader("Content-Type", "image/png");
@@ -206,7 +191,7 @@ app.get("/download-unassigned/:size", authMiddleware, async (req, res) => {
 
     for (const qr of qrs) {
       const url = `${BACKEND_URL}/scan/${qr._id}`;
-      const qrImage = await QRCode.toBuffer(url, { width: size * 100 });
+      const qrImage = await generateQRWithLogo(url, size * 100);
 
       archive.append(qrImage, { name: `QR-${qr._id}.png` });
     }
