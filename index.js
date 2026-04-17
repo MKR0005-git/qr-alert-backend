@@ -189,14 +189,12 @@ app.get("/download-unassigned/:size", authMiddleware, async (req, res) => {
   }
 });
 
-/* ================= 🔥 SCAN ROUTE (FIXED) ================= */
+/* ================= SCAN ================= */
 app.get("/scan/:id", async (req, res) => {
   try {
     const qr = await QR.findById(req.params.id);
 
-    if (!qr) {
-      return res.send("Invalid QR ❌");
-    }
+    if (!qr) return res.send("Invalid QR ❌");
 
     qr.scans = (qr.scans || 0) + 1;
 
@@ -213,6 +211,23 @@ app.get("/scan/:id", async (req, res) => {
   } catch (err) {
     console.error(err);
     res.status(500).send("Scan failed ❌");
+  }
+});
+
+/* ================= 🔥 FIX: QR DATA ================= */
+app.get("/qr-data/:id", async (req, res) => {
+  try {
+    const qr = await QR.findById(req.params.id);
+
+    if (!qr) {
+      return res.status(404).json({ error: "QR not found" });
+    }
+
+    res.json(qr);
+
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Failed to fetch QR data" });
   }
 });
 
