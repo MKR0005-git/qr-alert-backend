@@ -40,25 +40,35 @@ const authMiddleware = (req, res, next) => {
   }
 };
 
-/* ================= 🔥 QR WITH LOGO ================= */
+/* ================= 🔥 QR WITH LOGO (FIXED) ================= */
 const generateQRWithLogo = async (url, size = 600) => {
-  const qrBuffer = await QRCode.toBuffer(url, {
-    width: size,
-    margin: 2,
-  });
+  try {
+    const qrBuffer = await QRCode.toBuffer(url, {
+      width: size,
+      margin: 2,
+    });
 
-  const qr = await Jimp.read(qrBuffer);
-  const logo = await Jimp.read(path.join(__dirname, "logo.png"));
+    const qr = await Jimp.read(qrBuffer);
 
-  const logoSize = size / 4;
-  logo.resize(logoSize, logoSize);
+    const logoPath = path.resolve(__dirname, "logo.png");
+    console.log("Loading logo from:", logoPath);
 
-  const x = (qr.bitmap.width - logoSize) / 2;
-  const y = (qr.bitmap.height - logoSize) / 2;
+    const logo = await Jimp.read(logoPath);
 
-  qr.composite(logo, x, y);
+    const logoSize = size / 4;
+    logo.resize(logoSize, logoSize);
 
-  return await qr.getBufferAsync(Jimp.MIME_PNG);
+    const x = (qr.bitmap.width - logoSize) / 2;
+    const y = (qr.bitmap.height - logoSize) / 2;
+
+    qr.composite(logo, x, y);
+
+    return await qr.getBufferAsync(Jimp.MIME_PNG);
+
+  } catch (err) {
+    console.error("QR ERROR FULL:", err);
+    throw err;
+  }
 };
 
 /* ================= ROOT ================= */
@@ -143,18 +153,18 @@ app.get("/qr-data/:id", async (req, res) => {
   }
 });
 
-/* ================= GENERATE QR (WITH LOGO) ================= */
+/* ================= GENERATE QR ================= */
 app.get("/generate-qr/:id", async (req, res) => {
   try {
     const url = `${BACKEND_URL}/scan/${req.params.id}`;
-
     const qrImage = await generateQRWithLogo(url, 600);
 
     res.setHeader("Content-Type", "image/png");
     res.send(qrImage);
 
-  } catch {
-    res.status(500).json({ error: "QR generation failed" });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: err.message });
   }
 });
 
@@ -170,8 +180,9 @@ app.get("/download-qr/:id/:size", async (req, res) => {
     res.setHeader("Content-Type", "image/png");
     res.send(qrImage);
 
-  } catch {
-    res.status(500).json({ error: "Download failed" });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: err.message });
   }
 });
 
@@ -198,8 +209,9 @@ app.get("/download-unassigned/:size", authMiddleware, async (req, res) => {
 
     await archive.finalize();
 
-  } catch {
-    res.status(500).json({ error: "Download failed" });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: err.message });
   }
 });
 
