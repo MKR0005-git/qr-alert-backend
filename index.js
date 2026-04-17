@@ -88,6 +88,38 @@ app.post("/create-qr", authMiddleware, async (req, res) => {
   }
 });
 
+/* ================= 🔥 ALL QRS (FIXED) ================= */
+app.get("/all-qrs", authMiddleware, async (req, res) => {
+  try {
+    const user = await User.findById(req.user.userId);
+
+    if (user.role !== "admin") {
+      return res.status(403).json({ error: "Admin only" });
+    }
+
+    const qrs = await QR.find().sort({ createdAt: -1 });
+
+    res.json(qrs);
+
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/* ================= 🔥 QR DATA ================= */
+app.get("/qr-data/:id", async (req, res) => {
+  try {
+    const qr = await QR.findById(req.params.id);
+
+    if (!qr) return res.status(404).json({ error: "QR not found" });
+
+    res.json(qr);
+
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 /* ================= BULK CREATE ================= */
 app.post("/bulk-create", authMiddleware, async (req, res) => {
   try {
@@ -121,7 +153,44 @@ app.post("/bulk-create", authMiddleware, async (req, res) => {
   }
 });
 
+/* ================= GENERATE QR ================= */
+app.get("/generate-qr/:id", async (req, res) => {
+  try {
+    const url = `${BACKEND_URL}/scan/${req.params.id}`;
+
+    const qrImage = await QRCode.toBuffer(url, {
+      width: 600,
+      margin: 2,
+    });
+
+    res.setHeader("Content-Type", "image/png");
+    res.send(qrImage);
+
+  } catch {
+    res.status(500).json({ error: "QR generation failed" });
+  }
+});
+
 /* ================= DOWNLOAD ================= */
+app.get("/download-qr/:id/:size", async (req, res) => {
+  try {
+    const size = parseInt(req.params.size) || 6;
+    const url = `${BACKEND_URL}/scan/${req.params.id}`;
+
+    const qrImage = await QRCode.toBuffer(url, {
+      width: size * 100,
+    });
+
+    res.setHeader("Content-Disposition", `attachment; filename=QR-${req.params.id}.png`);
+    res.setHeader("Content-Type", "image/png");
+    res.send(qrImage);
+
+  } catch {
+    res.status(500).json({ error: "Download failed" });
+  }
+});
+
+/* ================= BULK DOWNLOAD ================= */
 app.get("/download-unassigned/:size", authMiddleware, async (req, res) => {
   try {
     const user = await User.findById(req.user.userId);
@@ -147,55 +216,6 @@ app.get("/download-unassigned/:size", authMiddleware, async (req, res) => {
   } catch {
     res.status(500).json({ error: "Download failed" });
   }
-});
-
-/* ================= ANALYTICS ================= */
-
-// 🔥 ADMIN STATS
-app.get("/admin-stats", authMiddleware, async (req, res) => {
-  const user = await User.findById(req.user.userId);
-  if (user.role !== "admin") return res.status(403).json({ error: "Admin only" });
-
-  const qrs = await QR.find();
-
-  const total = qrs.length;
-  const activated = qrs.filter(q => q.isActivated).length;
-  const unassigned = qrs.filter(q => !q.isActivated).length;
-  const scans = qrs.reduce((sum, q) => sum + (q.scans || 0), 0);
-
-  res.json({ total, activated, unassigned, scans });
-});
-
-// 🔥 TOP QRs
-app.get("/top-qrs", authMiddleware, async (req, res) => {
-  const user = await User.findById(req.user.userId);
-  if (user.role !== "admin") return res.status(403).json({ error: "Admin only" });
-
-  const top = await QR.find({ isActivated: true })
-    .sort({ scans: -1 })
-    .limit(5);
-
-  res.json(top);
-});
-
-// 🔥 SCAN TREND (last 7 days)
-app.get("/scan-trend", authMiddleware, async (req, res) => {
-  const user = await User.findById(req.user.userId);
-  if (user.role !== "admin") return res.status(403).json({ error: "Admin only" });
-
-  const qrs = await QR.find();
-
-  const trend = {};
-
-  qrs.forEach(qr => {
-    qr.scanHistory.forEach(s => {
-      const date = new Date(s.time).toLocaleDateString();
-
-      trend[date] = (trend[date] || 0) + 1;
-    });
-  });
-
-  res.json(trend);
 });
 
 /* ================= DELETE ================= */
