@@ -24,7 +24,7 @@ mongoose.connect(process.env.MONGO_URI)
   .then(() => console.log("MongoDB Connected ✅"))
   .catch(err => console.log(err));
 
-/* ================= AUTH MIDDLEWARE ================= */
+/* ================= AUTH ================= */
 const authMiddleware = (req, res, next) => {
   try {
     const token = req.headers.authorization?.split(" ")[1];
@@ -74,7 +74,7 @@ app.post("/google-login", async (req, res) => {
   }
 });
 
-/* ================= CREATE QR (USER) ================= */
+/* ================= CREATE QR ================= */
 app.post("/create-qr", authMiddleware, async (req, res) => {
   try {
     const qr = await QR.create({
@@ -91,7 +91,7 @@ app.post("/create-qr", authMiddleware, async (req, res) => {
   }
 });
 
-/* ================= BULK CREATE (ADMIN ONLY) ================= */
+/* ================= BULK CREATE ================= */
 app.post("/bulk-create", authMiddleware, async (req, res) => {
   try {
     const user = await User.findById(req.user.userId);
@@ -131,7 +131,6 @@ app.post("/activate-qr/:id", authMiddleware, async (req, res) => {
 
     if (!qr) return res.status(404).json({ error: "QR not found" });
 
-    // ❌ prevent activating already owned QR
     if (qr.isActivated && qr.userId) {
       return res.status(400).json({ error: "Already assigned QR" });
     }
@@ -154,6 +153,50 @@ app.post("/activate-qr/:id", authMiddleware, async (req, res) => {
   }
 });
 
+/* ================= UPDATE QR ================= */
+app.put("/update-qr/:id", authMiddleware, async (req, res) => {
+  try {
+    const qr = await QR.findById(req.params.id);
+
+    if (!qr) return res.status(404).json({ error: "QR not found" });
+
+    if (qr.userId.toString() !== req.user.userId) {
+      return res.status(403).json({ error: "Unauthorized" });
+    }
+
+    const updated = await QR.findByIdAndUpdate(
+      req.params.id,
+      req.body,
+      { new: true }
+    );
+
+    res.json(updated);
+
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/* ================= DELETE QR ================= */
+app.delete("/delete-qr/:id", authMiddleware, async (req, res) => {
+  try {
+    const qr = await QR.findById(req.params.id);
+
+    if (!qr) return res.status(404).json({ error: "QR not found" });
+
+    if (qr.userId.toString() !== req.user.userId) {
+      return res.status(403).json({ error: "Unauthorized" });
+    }
+
+    await QR.findByIdAndDelete(req.params.id);
+
+    res.json({ message: "QR deleted" });
+
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 /* ================= USER QRS ================= */
 app.get("/my-qrs", authMiddleware, async (req, res) => {
   try {
@@ -168,7 +211,7 @@ app.get("/my-qrs", authMiddleware, async (req, res) => {
   }
 });
 
-/* ================= ADMIN ALL QRS ================= */
+/* ================= ADMIN QRS ================= */
 app.get("/all-qrs", authMiddleware, async (req, res) => {
   try {
     const user = await User.findById(req.user.userId);
