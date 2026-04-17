@@ -24,6 +24,20 @@ mongoose.connect(process.env.MONGO_URI)
   .then(() => console.log("MongoDB Connected ✅"))
   .catch(err => console.log(err));
 
+/* ================= AUTH MIDDLEWARE ================= */
+const authMiddleware = (req, res, next) => {
+  try {
+    const token = req.headers.authorization?.split(" ")[1];
+    if (!token) return res.status(401).json({ error: "No token" });
+
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    req.user = decoded;
+    next();
+  } catch {
+    res.status(401).json({ error: "Unauthorized" });
+  }
+};
+
 /* ================= ROOT ================= */
 app.get("/", (req, res) => {
   res.send("API Running 🚀");
@@ -44,11 +58,6 @@ app.post("/google-login", async (req, res) => {
       });
     }
 
-    if (email === "kedhareswar5555@gmail.com") {
-      user.role = "admin";
-      await user.save();
-    }
-
     const token = jwt.sign(
       {
         userId: user._id,
@@ -65,29 +74,32 @@ app.post("/google-login", async (req, res) => {
   }
 });
 
-/* ================= CREATE QR ================= */
-app.post("/create-qr", async (req, res) => {
+/* ================= CREATE QR (USER) ================= */
+app.post("/create-qr", authMiddleware, async (req, res) => {
   try {
-    const token = req.headers.authorization?.split(" ")[1]; // 🔥 FIX
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
-
     const qr = await QR.create({
       ...req.body,
-      userId: decoded.userId,
-      userEmail: decoded.email,
+      userId: req.user.userId,
+      userEmail: req.user.email,
       isActivated: true,
     });
 
-    res.json({ id: qr._id });
+    res.json(qr);
 
-  } catch {
-    res.status(401).json({ error: "Unauthorized" });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
   }
 });
 
-/* ================= BULK CREATE ================= */
-app.post("/bulk-create", async (req, res) => {
+/* ================= BULK CREATE (ADMIN ONLY) ================= */
+app.post("/bulk-create", authMiddleware, async (req, res) => {
   try {
+    const user = await User.findById(req.user.userId);
+
+    if (user.role !== "admin") {
+      return res.status(403).json({ error: "Admin only" });
+    }
+
     const { count } = req.body;
 
     const qrs = [];
@@ -113,25 +125,23 @@ app.post("/bulk-create", async (req, res) => {
 });
 
 /* ================= ACTIVATE QR ================= */
-app.post("/activate-qr/:id", async (req, res) => {
+app.post("/activate-qr/:id", authMiddleware, async (req, res) => {
   try {
-    const token = req.headers.authorization?.split(" ")[1]; // 🔥 FIX
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
-
     const qr = await QR.findById(req.params.id);
 
     if (!qr) return res.status(404).json({ error: "QR not found" });
 
-    if (qr.isActivated) {
-      return res.status(400).json({ error: "Already activated" });
+    // ❌ prevent activating already owned QR
+    if (qr.isActivated && qr.userId) {
+      return res.status(400).json({ error: "Already assigned QR" });
     }
 
     const updated = await QR.findByIdAndUpdate(
       req.params.id,
       {
         ...req.body,
-        userId: decoded.userId,
-        userEmail: decoded.email,
+        userId: req.user.userId,
+        userEmail: req.user.email,
         isActivated: true,
       },
       { new: true }
@@ -139,25 +149,39 @@ app.post("/activate-qr/:id", async (req, res) => {
 
     res.json(updated);
 
-  } catch {
-    res.status(401).json({ error: "Unauthorized" });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
   }
 });
 
 /* ================= USER QRS ================= */
-app.get("/my-qrs", async (req, res) => {
+app.get("/my-qrs", authMiddleware, async (req, res) => {
   try {
-    const token = req.headers.authorization?.split(" ")[1]; // 🔥 FIX
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
-
     const data = await QR.find({
-      userId: decoded.userId,
+      userId: req.user.userId,
     }).sort({ createdAt: -1 });
 
     res.json(data);
 
-  } catch {
-    res.status(401).json({ error: "Unauthorized" });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/* ================= ADMIN ALL QRS ================= */
+app.get("/all-qrs", authMiddleware, async (req, res) => {
+  try {
+    const user = await User.findById(req.user.userId);
+
+    if (user.role !== "admin") {
+      return res.status(403).json({ error: "Admin only" });
+    }
+
+    const qrs = await QR.find().sort({ createdAt: -1 });
+    res.json(qrs);
+
+  } catch (err) {
+    res.status(500).json({ error: err.message });
   }
 });
 
@@ -213,12 +237,13 @@ app.get("/scan/:id", async (req, res) => {
   }
 });
 
-/* ================= OTHER ROUTES ================= */
+/* ================= QR DATA ================= */
 app.get("/qr-data/:id", async (req, res) => {
   const data = await QR.findById(req.params.id);
   res.json(data);
 });
 
+/* ================= GENERATE QR ================= */
 app.get("/generate-qr/:id", async (req, res) => {
   try {
     const url = `${BACKEND_URL}/scan/${req.params.id}`;
@@ -231,11 +256,6 @@ app.get("/generate-qr/:id", async (req, res) => {
   } catch {
     res.status(500).json({ error: "QR generation failed" });
   }
-});
-
-app.get("/all-qrs", async (req, res) => {
-  const qrs = await QR.find().sort({ createdAt: -1 });
-  res.json(qrs);
 });
 
 /* ================= SERVER ================= */
