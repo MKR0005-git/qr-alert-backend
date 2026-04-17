@@ -5,7 +5,6 @@ const mongoose = require("mongoose");
 const cors = require("cors");
 const jwt = require("jsonwebtoken");
 const User = require("./models/User");
-const PDFDocument = require("pdfkit");
 
 require("dotenv").config();
 
@@ -59,10 +58,7 @@ app.post("/google-login", async (req, res) => {
     }
 
     const token = jwt.sign(
-      {
-        userId: user._id,
-        email: user.email,
-      },
+      { userId: user._id, email: user.email },
       process.env.JWT_SECRET,
       { expiresIn: "7d" }
     );
@@ -160,7 +156,7 @@ app.put("/update-qr/:id", authMiddleware, async (req, res) => {
 
     if (!qr) return res.status(404).json({ error: "QR not found" });
 
-    if (qr.userId.toString() !== req.user.userId) {
+    if (!qr.userId || qr.userId.toString() !== req.user.userId) {
       return res.status(403).json({ error: "Unauthorized" });
     }
 
@@ -184,7 +180,8 @@ app.delete("/delete-qr/:id", authMiddleware, async (req, res) => {
 
     if (!qr) return res.status(404).json({ error: "QR not found" });
 
-    if (qr.userId.toString() !== req.user.userId) {
+    // 🔥 FIX: prevent crash if unassigned QR
+    if (qr.userId && qr.userId.toString() !== req.user.userId) {
       return res.status(403).json({ error: "Unauthorized" });
     }
 
@@ -221,32 +218,8 @@ app.get("/all-qrs", authMiddleware, async (req, res) => {
     }
 
     const qrs = await QR.find().sort({ createdAt: -1 });
+
     res.json(qrs);
-
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-/* ================= DOWNLOAD ================= */
-app.get("/download-qr/:id/:size", async (req, res) => {
-  try {
-    const { id, size } = req.params;
-
-    const sizes = { "6": 226, "8": 302, "12": 454 };
-    const pixelSize = sizes[size] || 300;
-
-    const url = `${BACKEND_URL}/scan/${id}`;
-
-    const qr = await QRCode.toDataURL(url, {
-      width: pixelSize,
-      margin: 2,
-    });
-
-    const buffer = Buffer.from(qr.split(",")[1], "base64");
-
-    res.set("Content-Type", "image/png");
-    res.send(buffer);
 
   } catch (err) {
     res.status(500).json({ error: err.message });
