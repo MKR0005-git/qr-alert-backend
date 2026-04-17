@@ -5,6 +5,7 @@ const mongoose = require("mongoose");
 const cors = require("cors");
 const jwt = require("jsonwebtoken");
 const User = require("./models/User");
+const archiver = require("archiver"); // 🔥 NEW
 
 require("dotenv").config();
 
@@ -120,6 +121,48 @@ app.post("/bulk-create", authMiddleware, async (req, res) => {
   }
 });
 
+/* ================= DOWNLOAD ALL UNASSIGNED (🔥 NEW FEATURE) ================= */
+app.get("/download-unassigned/:size", authMiddleware, async (req, res) => {
+  try {
+    const user = await User.findById(req.user.userId);
+
+    if (user.role !== "admin") {
+      return res.status(403).json({ error: "Admin only" });
+    }
+
+    const size = parseInt(req.params.size) || 6;
+
+    const qrs = await QR.find({ isActivated: false });
+
+    if (!qrs.length) {
+      return res.status(404).json({ error: "No unassigned QRs" });
+    }
+
+    res.attachment(`unassigned-qrs-${size}.zip`);
+
+    const archive = archiver("zip", { zlib: { level: 9 } });
+    archive.pipe(res);
+
+    for (const qr of qrs) {
+      const url = `${BACKEND_URL}/scan/${qr._id}`;
+
+      const qrImage = await QRCode.toBuffer(url, {
+        width: size * 100,
+      });
+
+      archive.append(qrImage, {
+        name: `QR-${qr._id}.png`,
+      });
+    }
+
+    await archive.finalize();
+
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Download failed" });
+  }
+});
+
 /* ================= ACTIVATE QR ================= */
 app.post("/activate-qr/:id", authMiddleware, async (req, res) => {
   try {
@@ -180,7 +223,6 @@ app.delete("/delete-qr/:id", authMiddleware, async (req, res) => {
 
     if (!qr) return res.status(404).json({ error: "QR not found" });
 
-    // 🔥 FIX: prevent crash if unassigned QR
     if (qr.userId && qr.userId.toString() !== req.user.userId) {
       return res.status(403).json({ error: "Unauthorized" });
     }
