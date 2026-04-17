@@ -6,7 +6,7 @@ const cors = require("cors");
 const jwt = require("jsonwebtoken");
 const User = require("./models/User");
 const archiver = require("archiver");
-const { Jimp } = require("jimp"); // ✅ FIXED
+const Jimp = require("jimp"); // ✅ FIXED (IMPORTANT)
 const path = require("path");
 
 require("dotenv").config();
@@ -51,25 +51,19 @@ const generateQRWithLogo = async (url, size = 600) => {
     const qr = await Jimp.read(qrBuffer);
 
     const logoPath = path.resolve(__dirname, "logo.png");
-    console.log("Loading logo:", logoPath);
-
     const logo = await Jimp.read(logoPath);
 
     const logoSize = Math.floor(size / 4);
 
-    // ✅ NEW JIMP RESIZE FORMAT
-    logo.resize({
-      width: logoSize,
-      height: logoSize,
-    });
+    // ✅ OLD STABLE API (NO ERRORS)
+    logo.resize(logoSize, logoSize);
 
     const x = Math.floor((qr.bitmap.width - logoSize) / 2);
     const y = Math.floor((qr.bitmap.height - logoSize) / 2);
 
     qr.composite(logo, x, y);
 
-    // ✅ FIXED BUFFER
-    return await qr.getBuffer("image/png");
+    return await qr.getBufferAsync(Jimp.MIME_PNG);
 
   } catch (err) {
     console.error("QR ERROR:", err);
@@ -145,20 +139,6 @@ app.get("/all-qrs", authMiddleware, async (req, res) => {
   }
 });
 
-/* ================= QR DATA ================= */
-app.get("/qr-data/:id", async (req, res) => {
-  try {
-    const qr = await QR.findById(req.params.id);
-
-    if (!qr) return res.status(404).json({ error: "QR not found" });
-
-    res.json(qr);
-
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
 /* ================= GENERATE QR ================= */
 app.get("/generate-qr/:id", async (req, res) => {
   try {
@@ -169,7 +149,6 @@ app.get("/generate-qr/:id", async (req, res) => {
     res.send(qrImage);
 
   } catch (err) {
-    console.error(err);
     res.status(500).json({ error: err.message });
   }
 });
@@ -187,7 +166,6 @@ app.get("/download-qr/:id/:size", async (req, res) => {
     res.send(qrImage);
 
   } catch (err) {
-    console.error(err);
     res.status(500).json({ error: err.message });
   }
 });
@@ -216,43 +194,8 @@ app.get("/download-unassigned/:size", authMiddleware, async (req, res) => {
     await archive.finalize();
 
   } catch (err) {
-    console.error(err);
     res.status(500).json({ error: err.message });
   }
-});
-
-/* ================= DELETE ================= */
-app.delete("/delete-qr/:id", authMiddleware, async (req, res) => {
-  const qr = await QR.findById(req.params.id);
-
-  if (!qr) return res.status(404).json({ error: "QR not found" });
-
-  if (qr.userId && qr.userId.toString() !== req.user.userId) {
-    return res.status(403).json({ error: "Unauthorized" });
-  }
-
-  await QR.findByIdAndDelete(req.params.id);
-
-  res.json({ message: "QR deleted" });
-});
-
-/* ================= SCAN ================= */
-app.get("/scan/:id", async (req, res) => {
-  const data = await QR.findById(req.params.id);
-
-  data.scans += 1;
-  data.scanHistory.push({
-    time: new Date(),
-    device: req.headers["user-agent"] || "Unknown",
-  });
-
-  await data.save();
-
-  if (!data.isActivated) {
-    return res.redirect(`${FRONTEND_URL}/activate/${req.params.id}`);
-  }
-
-  res.redirect(`${FRONTEND_URL}/profile/${req.params.id}`);
 });
 
 /* ================= SERVER ================= */
